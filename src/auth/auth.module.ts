@@ -10,6 +10,7 @@ import { JwtAuthGuard } from '@/auth/jwt-auth.guard';
 import { getJwtConfig } from '@/config/jwt.config';
 import { RedisModule } from '@/system/redis.module';
 import { WebAuthController } from '@/web/auth.controller';
+import { WebUserController } from '@/web/user.controller';
 
 @Module({
   imports: [
@@ -29,7 +30,7 @@ import { WebAuthController } from '@/web/auth.controller';
       },
     }),
   ],
-  controllers: [AppAuthController, WebAuthController],
+  controllers: [AppAuthController, WebAuthController, WebUserController],
   providers: [AuthService, JwtAuthGuard],
   exports: [AuthService, JwtAuthGuard],
 })

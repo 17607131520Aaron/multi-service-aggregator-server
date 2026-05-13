@@ -1,6 +1,6 @@
 import { compare, hash } from 'bcryptjs';
 import type Redis from 'ioredis';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 
 import {
   AppLoginDto,
@@ -9,12 +9,14 @@ import {
   AppRegisterType,
 } from '@/app/dto/auth.dto';
 import { WebLoginDto, WebRegisterDto } from '@/web/dto/auth.dto';
+import { WebUserQueryDto } from '@/web/dto/user.dto';
 import { UserEntity, UserRegistrationSource } from '@/auth/entities/user.entity';
 import {
   AppBusinessException,
   AppDataExistsException,
   AppDataNotFoundException,
   AppInternalErrorException,
+  AppMissingParameterException,
   AppUnauthorizedException,
 } from '@/common/enterprise-exceptions';
 import { INJECTION_TOKENS } from '@/common/injection-tokens';
@@ -43,6 +45,19 @@ export interface LoginResult {
   phone: string | null;
   token: string;
   expiresIn: number;
+}
+
+export interface WebUserProfileResult {
+  userId: string;
+  username: string | null;
+  nickname: string | null;
+  avatarUrl: string | null;
+  email: string | null;
+  phone: string | null;
+  registrationSource: UserRegistrationSource;
+  enabled: boolean;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 @Injectable()
@@ -150,6 +165,26 @@ export class AuthService {
     }
 
     throw new AppBusinessException('不支持的登录方式');
+  }
+
+  public async getWebUserProfile(queryDto: WebUserQueryDto): Promise<WebUserProfileResult> {
+    const where = [
+      queryDto.userId ? { id: queryDto.userId, deletedAt: IsNull() } : null,
+      queryDto.username ? { username: queryDto.username, deletedAt: IsNull() } : null,
+      queryDto.email ? { email: queryDto.email, deletedAt: IsNull() } : null,
+      queryDto.phone ? { phone: queryDto.phone, deletedAt: IsNull() } : null,
+    ].filter((item): item is NonNullable<typeof item> => item !== null);
+
+    if (where.length === 0) {
+      throw new AppMissingParameterException('请至少提供 userId、username、email、phone 中的一个查询条件');
+    }
+
+    const user = await this.userRepository.findOne({ where });
+    if (!user) {
+      throw new AppDataNotFoundException('用户不存在');
+    }
+
+    return this.toWebUserProfile(user);
   }
 
   public async sendPhoneVerificationCode(phone: string): Promise<{
@@ -267,6 +302,21 @@ export class AuthService {
       username: user.username,
       email: user.email,
       phone: user.phone,
+    };
+  }
+
+  private toWebUserProfile(user: UserEntity): WebUserProfileResult {
+    return {
+      userId: user.id,
+      username: user.username,
+      nickname: user.nickname,
+      avatarUrl: user.avatarUrl,
+      email: user.email,
+      phone: user.phone,
+      registrationSource: user.registrationSource,
+      enabled: user.enabled,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
     };
   }
 

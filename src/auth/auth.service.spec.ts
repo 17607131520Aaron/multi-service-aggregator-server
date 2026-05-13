@@ -1,11 +1,12 @@
-import { hash } from 'bcryptjs';
 import type { JwtService } from '@nestjs/jwt';
+import { hash } from 'bcryptjs';
 import type Redis from 'ioredis';
 
 import { AppLoginType, AppRegisterType } from '@/app/dto/auth.dto';
 import { UserRegistrationSource } from '@/auth/entities/user.entity';
 import {
   AppDataExistsException,
+  AppMissingParameterException,
   AppUnauthorizedException,
 } from '@/common/enterprise-exceptions';
 
@@ -147,12 +148,7 @@ describe('AuthService', () => {
       expiresIn: 1800,
     });
 
-    expect(redisClient.set).toHaveBeenCalledWith(
-      'auth:token:3',
-      'web-login-token',
-      'EX',
-      1800,
-    );
+    expect(redisClient.set).toHaveBeenCalledWith('auth:token:3', 'web-login-token', 'EX', 1800);
   });
 
   it('allows web-registered account to login from app with username and password', async () => {
@@ -272,6 +268,46 @@ describe('AuthService', () => {
     });
 
     expect(redisClient.del).toHaveBeenCalledWith('auth:sms-code:13800138000');
+  });
+
+  it('gets user profile by username for web endpoint', async () => {
+    const createdAt = new Date('2026-05-14T10:00:00.000Z');
+    const updatedAt = new Date('2026-05-14T10:30:00.000Z');
+    userRepository.findOne.mockResolvedValue({
+      id: '9',
+      username: 'alice',
+      nickname: 'Alice',
+      avatarUrl: 'https://example.com/avatar.png',
+      email: 'alice@example.com',
+      phone: '13800138000',
+      registrationSource: UserRegistrationSource.WEB,
+      enabled: true,
+      createdAt,
+      updatedAt,
+    });
+
+    await expect(authService.getWebUserProfile({ username: 'alice' })).resolves.toEqual({
+      userId: '9',
+      username: 'alice',
+      nickname: 'Alice',
+      avatarUrl: 'https://example.com/avatar.png',
+      email: 'alice@example.com',
+      phone: '13800138000',
+      registrationSource: UserRegistrationSource.WEB,
+      enabled: true,
+      createdAt,
+      updatedAt,
+    });
+
+    expect(userRepository.findOne).toHaveBeenCalledWith({
+      where: [expect.objectContaining({ username: 'alice' })],
+    });
+  });
+
+  it('rejects empty query conditions for web user profile lookup', async () => {
+    await expect(authService.getWebUserProfile({})).rejects.toBeInstanceOf(
+      AppMissingParameterException,
+    );
   });
 
   it('rejects token when redis session does not match', async () => {

@@ -54,3 +54,9 @@ export class WebRegisterDto {
   @IsNotEmpty({ message: '确认密码不能为空' })
   public confirmPassword: string;
 }
+
+//登录返回
+export class WebAuthSessionResponseDto {
+  @ApiProperty({ description: 'token', example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9' })
+  public accessToken: string;
+}
