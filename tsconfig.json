@@ -1,25 +1,56 @@
 {
   "compilerOptions": {
-    "module": "nodenext",
-    "moduleResolution": "nodenext",
-    "resolvePackageJsonExports": true,
-    "esModuleInterop": true,
-    "isolatedModules": true,
-    "declaration": true,
-    "removeComments": true,
-    "emitDecoratorMetadata": true,
+    // 模块系统：使用 CommonJS（NestJS 标准，字节/蚂蚁常用）
+    "module": "commonjs",
+    "moduleResolution": "node",
+
+    // 目标版本：ES2017（Node.js LTS 兼容性好）
+    "target": "ES2017",
+    "lib": ["ES2017"],
+
+    // 装饰器支持（NestJS 必需）
     "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+
+    // 模块解析
+    "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
-    "target": "ES2023",
-    "sourceMap": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+
+    // 输出配置
     "outDir": "./dist",
-    "baseUrl": "./",
-    "incremental": true,
-    "skipLibCheck": true,
+    "rootDir": "./src",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "removeComments": true,
+
+    // 类型检查（字节/蚂蚁推荐配置，适配 NestJS）
+    "strict": true,
     "strictNullChecks": true,
+    "strictBindCallApply": true,
+    "strictFunctionTypes": false, // 关闭以避免事件处理器类型问题
+    "strictPropertyInitialization": false, // NestJS/TypeORM 装饰器模式需要关闭
+    "noImplicitAny": false, // 保持与原有配置一致，避免破坏现有代码
+    "noImplicitThis": true,
+    "noUnusedLocals": false, // 开发阶段可以暂时关闭，避免干扰
+    "noUnusedParameters": false, // 开发阶段可以暂时关闭，避免干扰
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": false, // 可选，根据项目需要开启
+
+    // 其他编译选项
+    "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "noImplicitAny": false,
-    "strictBindCallApply": false,
-    "noFallthroughCasesInSwitch": false
-  }
+    "incremental": true,
+    "preserveWatchOutput": true,
+
+    // 路径别名
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "test", "**/*spec.ts", "**/*.e2e-spec.ts"]
 }
