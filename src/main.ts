@@ -5,6 +5,23 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { apiReference } from '@scalar/nestjs-api-reference';
 import { AppModule } from './app.module';
 
+function normalizeCorsOrigins(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => String(item).trim())
+      .filter((item) => item.length > 0);
+  }
+
+  if (typeof value === 'string') {
+    return value
+      .split(',')
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
+  }
+
+  return [];
+}
+
 async function bootstrap(): Promise<void> {
   const logger = new Logger('Bootstrap');
   const app = await NestFactory.create(AppModule);
@@ -23,6 +40,22 @@ async function bootstrap(): Promise<void> {
   const env = configService.get<string>('app.env') ?? process.env.NODE_ENV ?? 'development';
   const port = configService.get<number>('app.port') ?? 9000;
   const apiPrefix = configService.get<string>('app.apiPrefix') ?? '';
+  const corsOrigins = normalizeCorsOrigins(configService.get<unknown>('app.corsOrigins'));
+
+  app.enableCors({
+    origin: (origin, callback) => {
+      if (!origin || corsOrigins.length === 0 || corsOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      callback(new Error(`CORS origin not allowed: ${origin}`), false);
+    },
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    exposedHeaders: ['x-request-id'],
+    credentials: true,
+  });
 
   if (apiPrefix) {
     app.setGlobalPrefix(apiPrefix);
@@ -56,6 +89,7 @@ async function bootstrap(): Promise<void> {
   logger.log(`Scalar UI: http://localhost:${port}${apiPrefix}/api-docs`);
   logger.log(`Environment: ${env}`);
   logger.log(`Port: ${port}`);
+  logger.log(`CORS origins: ${corsOrigins.length > 0 ? corsOrigins.join(', ') : '*'}`);
   await app.listen(port);
   logger.log(`Application is running on: http://localhost:${port} (env=${env})`);
 }

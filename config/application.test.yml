@@ -41,3 +41,9 @@ jwt:
 
 ops:
   token: test-ops-token
+
+sensenova:
+  apiUrl: https://token.sensenova.cn/v1/chat/completions
+  apiToken: sk-OeRK8ioPFGj3FcNtOjbQOpyjlRPCw9M8
+  model: sensenova-6.7-flash-lite
+  timeoutMs: 60000

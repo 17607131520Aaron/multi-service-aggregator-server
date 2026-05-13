@@ -32,6 +32,13 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
     this.logServerError(exception, request, errorPayload.status);
 
+    if (response.headersSent) {
+      if (!response.writableEnded) {
+        response.end();
+      }
+      return;
+    }
+
     response.status(errorPayload.status).json({
       code: errorPayload.code,
       data: null,

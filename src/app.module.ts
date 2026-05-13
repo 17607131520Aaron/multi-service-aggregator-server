@@ -1,4 +1,4 @@
-import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { Logger, MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -6,6 +6,7 @@ import { load } from 'js-yaml';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { AiModule } from '@/ai/ai.module';
 import { AuthModule } from '@/auth/auth.module';
 import { JwtAuthGuard } from '@/auth/jwt-auth.guard';
 import { INJECTION_TOKENS } from '@/common/injection-tokens';
@@ -41,8 +42,8 @@ function logEnvironmentConfig(configService: ConfigService): void {
   const apiPrefix = configService.get<string>('app.apiPrefix') ?? '';
   const mysqlConfig = getDbConfig(configService);
 
-  console.log(`[Config] app env=${env}, port=${port}, apiPrefix=${apiPrefix || '/'}`);
-  console.log(
+  Logger.log(`[Config] app env=${env}, port=${port}, apiPrefix=${apiPrefix || '/'}`);
+  Logger.log(
     `[Config] mysql host=${mysqlConfig.host}, port=${mysqlConfig.port}, database=${mysqlConfig.database}, username=${mysqlConfig.username}, synchronize=${mysqlConfig.synchronize}, logging=${mysqlConfig.logging}`,
   );
 }
@@ -74,6 +75,7 @@ function logEnvironmentConfig(configService: ConfigService): void {
         };
       },
     }),
+    AiModule,
     AuthModule,
     HealthModule,
   ],

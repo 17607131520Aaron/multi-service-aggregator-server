@@ -32,5 +32,10 @@ jwt:
   secret: dev-secret
   ttlSeconds: 3600
 
-ops:
-  token:""
+ops: token:""
+
+sensenova:
+  apiUrl: https://token.sensenova.cn/v1/chat/completions
+  apiToken: ''
+  model: sensenova-6.7-flash-lite
+  timeoutMs: 60000
