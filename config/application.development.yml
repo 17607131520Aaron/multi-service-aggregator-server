@@ -1,0 +1,36 @@
+app:
+  env: development
+  port: 3000
+  # apiPrefix: /multi-service-aggregator
+
+mysql:
+  host: 127.0.0.1
+  port: 3306
+  username: root
+  password: root
+  database: multi-dev
+  synchronize: true
+  logging: true
+
+redis:
+  host: 127.0.0.1
+  port: 6379
+  password:
+  db: 2
+  keyPrefix: 'multi-dev:'
+  required: true
+
+health:
+  mysql:
+    enabled: true
+    timeoutMs: 3000
+  redis:
+    enabled: true
+    timeoutMs: 3000
+
+jwt:
+  secret: dev-secret
+  ttlSeconds: 3600
+
+ops:
+  token:""

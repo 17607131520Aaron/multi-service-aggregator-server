@@ -1,4 +1,5 @@
 import { Logger, ValidationPipe } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { apiReference } from '@scalar/nestjs-api-reference';
@@ -7,6 +8,7 @@ import { AppModule } from './app.module';
 async function bootstrap(): Promise<void> {
   const logger = new Logger('Bootstrap');
   const app = await NestFactory.create(AppModule);
+  const configService = app.get(ConfigService);
 
   // 全局请求体验证：把字段校验从 services 挪到 DTO + 管道
   app.useGlobalPipes(
@@ -18,8 +20,13 @@ async function bootstrap(): Promise<void> {
     }),
   );
 
-  const env = 'dev';
-  const port = 9000;
+  const env = configService.get<string>('app.env') ?? process.env.NODE_ENV ?? 'development';
+  const port = configService.get<number>('app.port') ?? 9000;
+  const apiPrefix = configService.get<string>('app.apiPrefix') ?? '';
+
+  if (apiPrefix) {
+    app.setGlobalPrefix(apiPrefix);
+  }
 
   const swaggerConfig = new DocumentBuilder()
     .setTitle('API 文档')
@@ -46,7 +53,7 @@ async function bootstrap(): Promise<void> {
   );
 
   logger.log('API docs enabled');
-  logger.log(`Scalar UI: http://localhost:${port}/api-docs`);
+  logger.log(`Scalar UI: http://localhost:${port}${apiPrefix}/api-docs`);
   logger.log(`Environment: ${env}`);
   logger.log(`Port: ${port}`);
   await app.listen(port);

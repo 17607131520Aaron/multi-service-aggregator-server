@@ -1,0 +1,43 @@
+app:
+  env: test
+  port: 9999
+  # apiPrefix: /multi-service-aggregator
+
+mysql:
+  host: 120.53.227.126
+  port: 3306
+  username: huangyafeng
+  password: Hyf@20001120
+  database: multi-test
+  synchronize: false
+  logging: false
+
+redis:
+  host: 120.53.227.126
+  port: 6379
+  password: 5820@Feng
+  db: 1
+  keyPrefix: 'multi-test:'
+  required: true
+
+health:
+  mysql:
+    enabled: true
+    timeoutMs: 5000
+  redis:
+    enabled: true
+    timeoutMs: 3000
+
+# rabbitmq:
+#   host: 127.0.0.1
+#   port: 5672
+#   username: guest
+#   password: guest
+#   required: false
+
+jwt:
+  secret: test-secret
+  ttlSeconds: 3600
+
+ops:
+  token: test-ops-token
