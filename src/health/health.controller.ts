@@ -1,3 +1,4 @@
+import { Public } from '@/auth/public.decorator';
 import { Controller, Get, HttpStatus, Res } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
@@ -9,12 +10,14 @@ import { HealthService } from '@/health/health.service';
 export class HealthController {
   constructor(private readonly healthService: HealthService) {}
 
+  @Public()
   @Get('live')
   @ApiOperation({ summary: '存活检查' })
   public getLiveness(@Res() response: Response): void {
     response.status(HttpStatus.OK).json(this.healthService.getLiveness());
   }
 
+  @Public()
   @Get('ready')
   @ApiOperation({ summary: '就绪检查' })
   public async getReadiness(@Res() response: Response): Promise<void> {

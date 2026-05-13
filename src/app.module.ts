@@ -1,12 +1,13 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { load } from 'js-yaml';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { AuthController } from '@/app/user-controller';
+import { AuthModule } from '@/auth/auth.module';
+import { JwtAuthGuard } from '@/auth/jwt-auth.guard';
 import { INJECTION_TOKENS } from '@/common/injection-tokens';
 import { RequestContextMiddleware } from '@/common/request-context.middleware';
 import { getDbConfig } from '@/config/db.config';
@@ -15,7 +16,6 @@ import { DtoTransformInterceptor } from '@/interceptors/dto-transform.intercepto
 import { GlobalResponseWrapperInterceptor } from '@/interceptors/global-response.interceptor';
 import { HttpExceptionFilter } from '@/interceptors/http-exception.interceptor';
 import { RequestLoggingInterceptor } from '@/interceptors/request-logging.interceptor';
-import { RedisModule } from '@/system/redis.module';
 
 function resolveConfigFilePath(): string {
   const runtimeEnv = process.env.NODE_ENV ?? 'development';
@@ -74,14 +74,14 @@ function logEnvironmentConfig(configService: ConfigService): void {
         };
       },
     }),
-    RedisModule,
+    AuthModule,
     HealthModule,
   ],
-  controllers: [AuthController],
   providers: [
     { provide: APP_INTERCEPTOR, useClass: RequestLoggingInterceptor },
     { provide: APP_INTERCEPTOR, useClass: GlobalResponseWrapperInterceptor },
     { provide: APP_INTERCEPTOR, useClass: DtoTransformInterceptor },
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: INJECTION_TOKENS.DEFAULT_DTO, useValue: null },
     { provide: APP_FILTER, useClass: HttpExceptionFilter },
     { provide: INJECTION_TOKENS.DEFAULT_SUCCESS_CODE, useValue: 0 },
