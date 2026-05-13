@@ -18,17 +18,7 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./test/jest-e2e.json",
-    "db:typeorm": "node -r ts-node/register -r tsconfig-paths/register ./node_modules/typeorm/cli.js -d src/infrastructure/typeorm.data-source.ts",
-    "db:migration:run": "NODE_ENV=development pnpm db:typeorm migration:run",
-    "db:migration:run:test": "NODE_ENV=test pnpm db:typeorm migration:run",
-    "db:migration:run:prod": "NODE_ENV=production pnpm db:typeorm migration:run",
-    "db:migration:revert": "NODE_ENV=development pnpm db:typeorm migration:revert",
-    "db:migration:revert:test": "NODE_ENV=test pnpm db:typeorm migration:revert",
-    "db:migration:revert:prod": "NODE_ENV=production pnpm db:typeorm migration:revert",
-    "db:migration:show": "NODE_ENV=development pnpm db:typeorm migration:show",
-    "db:migration:show:test": "NODE_ENV=test pnpm db:typeorm migration:show",
-    "db:migration:show:prod": "NODE_ENV=production pnpm db:typeorm migration:show"
+    "test:e2e": "jest --config ./test/jest-e2e.json"
   },
   "dependencies": {
     "@golevelup/nestjs-rabbitmq": "^9.0.0",

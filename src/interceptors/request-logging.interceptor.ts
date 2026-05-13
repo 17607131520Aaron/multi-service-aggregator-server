@@ -6,7 +6,7 @@ import {
   type NestInterceptor,
 } from '@nestjs/common';
 import { Observable } from 'rxjs';
-import { tap } from 'rxjs/operators';
+import { finalize } from 'rxjs/operators';
 
 import type { RequestWithContext } from '@/common/request-context.middleware';
 
@@ -28,13 +28,10 @@ export class RequestLoggingInterceptor implements NestInterceptor {
     const startedAt = Date.now();
 
     return next.handle().pipe(
-      tap({
-        next: () => {
-          this.logRequest('info', request, response.statusCode ?? 200, Date.now() - startedAt);
-        },
-        error: () => {
-          this.logRequest('error', request, response.statusCode ?? 500, Date.now() - startedAt);
-        },
+      finalize(() => {
+        const statusCode = response.statusCode ?? 500;
+        const level = statusCode >= 400 ? 'error' : 'info';
+        this.logRequest(level, request, statusCode, Date.now() - startedAt);
       }),
     );
   }

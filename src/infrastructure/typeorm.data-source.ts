@@ -1,7 +1,7 @@
-import { DataSource } from 'typeorm';
 import { load } from 'js-yaml';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { DataSource } from 'typeorm';
 
 import { UserEntity } from '@/auth/entities/user.entity';
 
