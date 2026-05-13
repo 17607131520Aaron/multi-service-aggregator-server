@@ -128,7 +128,12 @@ export class AiService {
         return;
       }
 
-      const message = error instanceof Error ? error.message : 'AI 对话服务暂时不可用';
+      const message =
+        error instanceof Error && error.name === 'TimeoutError'
+          ? `SenseNova 响应超时（>${config.timeoutMs}ms）`
+          : error instanceof Error
+            ? error.message
+            : 'AI 对话服务暂时不可用';
       this.logger.error(`stream chat failed requestId=${requestId}: ${message}`);
 
       if (!response.writableEnded) {
