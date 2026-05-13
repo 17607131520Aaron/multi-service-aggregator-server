@@ -7,6 +7,10 @@
   "license": "UNLICENSED",
   "scripts": {
     "build": "nest build",
+    "docker:build:dev": "docker build --build-arg APP_ENV=development -t multi-service-aggregator-server:development .",
+    "docker:build:test": "docker build --build-arg APP_ENV=test -t multi-service-aggregator-server:test .",
+    "docker:build:prod": "docker build --build-arg APP_ENV=production -t multi-service-aggregator-server:production .",
+    "docker:release": "bash scripts/docker-release.sh",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "NODE_ENV=test nest start --watch",
     "start:dev": "NODE_ENV=development nest start --watch",

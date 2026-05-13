@@ -1,0 +1,11 @@
+services:
+  app:
+    image: ${IMAGE_NAME:?IMAGE_NAME is required}
+    container_name: ${CONTAINER_NAME:-multi-service-aggregator-server}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${APP_ENV:-production}
+      APP_ENV: ${APP_ENV:-production}
+      TZ: ${TZ:-Asia/Shanghai}
+    ports:
+      - "${HOST_PORT:-9000}:${CONTAINER_PORT:-9000}"
