@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Response } from 'express';
 
+import { LangChainContextService } from '@/ai/langchain-context.service';
 import { AuthenticatedUser } from '@/auth/auth.service';
 import { AppBusinessException, AppInternalErrorException } from '@/common/enterprise-exceptions';
 import { getSenseNovaConfig } from '@/config/sensenova.config';
@@ -54,7 +55,10 @@ interface SenseNovaStreamPayload {
 export class AiService {
   private readonly logger = new Logger(AiService.name);
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly langChainContextService: LangChainContextService,
+  ) {}
 
   public async streamWebChat(
     dto: WebAiChatStreamRequestDto,
@@ -84,10 +88,14 @@ export class AiService {
     response.on('finish', closeStream);
 
     this.setupSseHeaders(response, requestId);
+    const preparedContext = await this.langChainContextService.prepareMessages(dto, user, requestId);
     this.writeSse(response, 'meta', {
       requestId,
       model: dto.model ?? config.model,
       userId: user?.userId ?? null,
+      contextStrategy: 'langchain',
+      historyMessageCount: preparedContext.historyMessageCount,
+      contextDocumentCount: preparedContext.contextDocumentCount,
     });
 
     const upstreamUserId = user?.userId ?? `anonymous:${requestId}`;
@@ -101,7 +109,7 @@ export class AiService {
         },
         body: JSON.stringify({
           model: dto.model ?? config.model,
-          messages: dto.messages.map((message) => this.toSenseNovaMessage(message)),
+          messages: preparedContext.messages.map((message) => this.toSenseNovaMessage(message)),
           stream: true,
           stream_options: {
             include_usage: true,
