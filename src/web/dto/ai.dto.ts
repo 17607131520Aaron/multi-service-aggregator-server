@@ -1,4 +1,5 @@
 import { Type } from 'class-transformer';
+import { Exclude, Expose } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   ArrayMaxSize,
@@ -10,7 +11,9 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  IsUrl,
   Max,
+  MaxLength,
   Min,
   ValidateIf,
   ValidateNested,
@@ -76,13 +79,6 @@ export class WebAiChatStreamRequestDto {
   @Type(() => WebAiChatMessageDto)
   public messages: WebAiChatMessageDto[];
 
-  @ApiPropertyOptional({
-    description: '指定模型，不传则使用服务端默认模型 sensenova-6.7-flash-lite',
-  })
-  @IsOptional()
-  @IsString()
-  public model?: string;
-
   @ApiPropertyOptional({ description: '最大输出 token 数', default: 4096 })
   @IsOptional()
   @IsNumber()
@@ -119,4 +115,75 @@ export class WebAiChatStreamRequestDto {
   @IsOptional()
   @IsBoolean()
   public deepThinking?: boolean;
+}
+
+export class WebAiApiKeyConfigRequestDto {
+  @ApiProperty({
+    description: '自定义 AI 请求 URL，需为 HTTP/HTTPS 绝对地址',
+    example: 'https://api.openai.com/v1/chat/completions',
+  })
+  @IsUrl(
+    {
+      require_protocol: true,
+      protocols: ['http', 'https'],
+      require_tld: false,
+    },
+    { message: '请求 URL 必须是有效的 HTTP/HTTPS 地址' },
+  )
+  @MaxLength(2048, { message: '请求 URL 长度不能超过 2048 个字符' })
+  public requestUrl: string;
+
+  @ApiPropertyOptional({
+    description: '自定义 AI API Key Token；留空则保留已保存的 Token',
+    example: 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(4096, { message: 'API Key Token 长度不能超过 4096 个字符' })
+  public apiKeyToken?: string;
+
+  @ApiPropertyOptional({
+    description: '模型名称；留空则保留已保存的模型',
+    example: 'gpt-4o-mini',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(128, { message: '模型名称长度不能超过 128 个字符' })
+  public model?: string;
+}
+
+@Exclude()
+export class WebAiApiKeyConfigResponseDto {
+  @ApiProperty({
+    description: '自定义 AI 请求 URL，未配置时为空字符串',
+    example: 'https://api.openai.com/v1/chat/completions',
+  })
+  @Expose()
+  public requestUrl: string;
+
+  @ApiProperty({
+    description: '模型名称，未配置时为空字符串',
+    example: 'gpt-4o-mini',
+  })
+  @Expose()
+  public model: string;
+
+  @ApiProperty({ description: '当前用户是否已配置 API Key Token', example: true })
+  @Expose()
+  public hasApiKeyToken: boolean;
+
+  @ApiProperty({
+    description: '脱敏后的 API Key Token，未配置时为空字符串',
+    example: 'sk-****abcd',
+  })
+  @Expose()
+  public apiKeyTokenMasked: string;
+
+  @ApiProperty({
+    description: '配置更新时间，未配置时为 null',
+    example: '2026-05-15T12:00:00.000Z',
+    nullable: true,
+  })
+  @Expose()
+  public updatedAt: string | null;
 }

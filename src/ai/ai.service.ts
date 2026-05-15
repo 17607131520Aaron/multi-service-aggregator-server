@@ -1,55 +1,29 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Response } from 'express';
+import type Redis from 'ioredis';
 
 import { LangChainContextService } from '@/ai/langchain-context.service';
+import {
+  StoredWebAiApiKeyConfig,
+  WebAiApiKeyConfigCache,
+} from '@/ai/web-ai-api-key-config.cache';
+import {
+  extractStreamError,
+  normalizeUpstreamChunk,
+  parseSseSegment,
+  shouldEmitUpstreamChunk,
+} from '@/ai/upstream-stream.parser';
 import { AuthenticatedUser } from '@/auth/auth.service';
 import { AppBusinessException, AppInternalErrorException } from '@/common/enterprise-exceptions';
-import { getSenseNovaConfig } from '@/config/sensenova.config';
+import { INJECTION_TOKENS } from '@/common/injection-tokens';
+import { getAiStreamConfig } from '@/config/ai.config';
 import {
+  WebAiApiKeyConfigRequestDto,
+  WebAiApiKeyConfigResponseDto,
   WebAiChatContentBlockDto,
   WebAiChatStreamRequestDto,
 } from '@/web/dto/ai.dto';
-
-interface SenseNovaDelta {
-  role?: string;
-  content?: string | null;
-  reasoning_content?: string | null;
-  tool_calls?: unknown[];
-}
-
-interface SenseNovaChoice {
-  index?: number;
-  delta?: SenseNovaDelta;
-  message?: {
-    role?: string;
-    content?: string | null;
-    tool_calls?: unknown[];
-  };
-  finish_reason?: string | null;
-}
-
-interface SenseNovaUsage {
-  prompt_tokens?: number;
-  completion_tokens?: number;
-  total_tokens?: number;
-  prompt_tokens_details?: Record<string, unknown>;
-  completion_tokens_details?: Record<string, unknown>;
-}
-
-interface SenseNovaStreamPayload {
-  id?: string;
-  object?: string;
-  created?: number;
-  model?: string;
-  choices?: SenseNovaChoice[];
-  usage?: SenseNovaUsage;
-  error?: {
-    message?: string;
-    type?: string;
-    code?: string;
-  };
-}
 
 @Injectable()
 export class AiService {
@@ -58,20 +32,92 @@ export class AiService {
   constructor(
     private readonly configService: ConfigService,
     private readonly langChainContextService: LangChainContextService,
+    private readonly webAiApiKeyConfigCache: WebAiApiKeyConfigCache,
+    @Optional()
+    @Inject(INJECTION_TOKENS.REDIS_SERVICE)
+    private readonly redisClient: Redis | null,
   ) {}
+
+  public async getWebAiApiKeyConfig(
+    user: AuthenticatedUser,
+  ): Promise<WebAiApiKeyConfigResponseDto> {
+    await this.ensureRedisReady();
+
+    const storedConfig = await this.resolveWebAiApiKeyConfig(user.userId, true);
+    return this.toWebAiApiKeyConfigResponse(storedConfig);
+  }
+
+  public async saveWebAiApiKeyConfig(
+    user: AuthenticatedUser,
+    dto: WebAiApiKeyConfigRequestDto,
+  ): Promise<WebAiApiKeyConfigResponseDto> {
+    await this.ensureRedisReady();
+
+    const existingConfig = await this.resolveWebAiApiKeyConfig(user.userId, true);
+    const apiKeyToken = dto.apiKeyToken?.trim() || existingConfig?.apiKeyToken || '';
+
+    if (!apiKeyToken) {
+      throw new AppBusinessException('API Key Token 不能为空');
+    }
+
+    const model = dto.model?.trim() || existingConfig?.model || '';
+
+    if (!model) {
+      throw new AppBusinessException('模型名称不能为空');
+    }
+
+    const storedConfig: StoredWebAiApiKeyConfig = {
+      requestUrl: dto.requestUrl.trim(),
+      apiKeyToken,
+      model,
+      updatedAt: new Date().toISOString(),
+    };
+
+    await this.redisClient!.set(this.buildWebAiApiKeyConfigKey(user.userId), JSON.stringify(storedConfig));
+    this.webAiApiKeyConfigCache.set(user.userId, storedConfig);
+
+    return this.toWebAiApiKeyConfigResponse(storedConfig);
+  }
+
+  public async deleteWebAiApiKeyConfig(
+    user: AuthenticatedUser,
+  ): Promise<WebAiApiKeyConfigResponseDto> {
+    await this.ensureRedisReady();
+
+    await this.redisClient!.del(this.buildWebAiApiKeyConfigKey(user.userId));
+    this.webAiApiKeyConfigCache.set(user.userId, null);
+
+    return this.toWebAiApiKeyConfigResponse(null);
+  }
 
   public async streamWebChat(
     dto: WebAiChatStreamRequestDto,
-    user: AuthenticatedUser | undefined,
+    user: AuthenticatedUser,
     response: Response,
     requestId: string,
   ): Promise<void> {
-    const config = getSenseNovaConfig(this.configService);
+    await this.ensureRedisReady();
+    const userConfig = await this.resolveWebAiApiKeyConfig(user.userId);
 
-    if (!config.apiToken) {
-      throw new AppInternalErrorException('SenseNova API Token 未配置');
+    if (!userConfig) {
+      throw new AppBusinessException('请先在设置中配置 AI 请求 URL、API Key 和模型');
     }
 
+    await this.streamCustomWebChat(dto, user, response, requestId, userConfig);
+  }
+
+  private async streamCustomWebChat(
+    dto: WebAiChatStreamRequestDto,
+    user: AuthenticatedUser,
+    response: Response,
+    requestId: string,
+    customConfig: StoredWebAiApiKeyConfig,
+  ): Promise<void> {
+    if (!customConfig.requestUrl || !customConfig.apiKeyToken || !customConfig.model) {
+      throw new AppBusinessException('请先在设置中配置完整的 AI 请求 URL、API Key 和模型');
+    }
+
+    const { streamTimeoutMs } = getAiStreamConfig(this.configService);
     const controller = new AbortController();
     let closed = false;
 
@@ -89,48 +135,47 @@ export class AiService {
 
     this.setupSseHeaders(response, requestId);
     const preparedContext = await this.langChainContextService.prepareMessages(dto, user, requestId);
+
     this.writeSse(response, 'meta', {
       requestId,
-      model: dto.model ?? config.model,
-      userId: user?.userId ?? null,
+      model: customConfig.model,
+      userId: user.userId,
       contextStrategy: 'langchain',
+      provider: 'custom',
       historyMessageCount: preparedContext.historyMessageCount,
       contextDocumentCount: preparedContext.contextDocumentCount,
     });
 
-    const upstreamUserId = user?.userId ?? `anonymous:${requestId}`;
+    const upstreamUserId = user.userId;
 
     try {
-      const upstreamResponse = await fetch(config.apiUrl, {
+      const upstreamResponse = await fetch(customConfig.requestUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${config.apiToken}`,
+          Authorization: `Bearer ${customConfig.apiKeyToken}`,
         },
         body: JSON.stringify({
-          model: dto.model ?? config.model,
-          messages: preparedContext.messages.map((message) => this.toSenseNovaMessage(message)),
+          model: customConfig.model,
+          messages: preparedContext.messages.map((message) => this.toUpstreamChatMessage(message)),
           stream: true,
-          stream_options: {
-            include_usage: true,
-          },
           max_tokens: dto.maxTokens ?? 4096,
           temperature: dto.temperature ?? 1,
           top_p: dto.topP ?? 1,
           reasoning_effort: dto.deepThinking ? 'high' : (dto.reasoningEffort ?? 'none'),
           user: upstreamUserId,
         }),
-        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(config.timeoutMs)]),
+        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(streamTimeoutMs)]),
       });
 
       if (!upstreamResponse.ok || !upstreamResponse.body) {
         const errorText = await upstreamResponse.text();
         throw new AppBusinessException(
-          `SenseNova 请求失败: ${upstreamResponse.status} ${errorText || upstreamResponse.statusText}`,
+          `自定义 AI 请求失败: ${upstreamResponse.status} ${errorText || upstreamResponse.statusText}`,
         );
       }
 
-      await this.forwardSenseNovaStream(upstreamResponse.body, response);
+      await this.forwardUpstreamSseStream(upstreamResponse.body, response);
     } catch (error) {
       if (controller.signal.aborted && response.writableEnded) {
         return;
@@ -138,11 +183,11 @@ export class AiService {
 
       const message =
         error instanceof Error && error.name === 'TimeoutError'
-          ? `SenseNova 响应超时（>${config.timeoutMs}ms）`
+          ? `自定义 AI 响应超时（>${streamTimeoutMs}ms）`
           : error instanceof Error
             ? error.message
             : 'AI 对话服务暂时不可用';
-      this.logger.error(`stream chat failed requestId=${requestId}: ${message}`);
+      this.logger.error(`custom stream chat failed requestId=${requestId}: ${message}`);
 
       if (!response.writableEnded) {
         this.writeSse(response, 'error', { message });
@@ -164,14 +209,14 @@ export class AiService {
     response.flushHeaders();
   }
 
-  private async forwardSenseNovaStream(
+  private async forwardUpstreamSseStream(
     stream: ReadableStream<Uint8Array>,
     response: Response,
   ): Promise<void> {
     const reader = stream.getReader();
     const decoder = new TextDecoder('utf-8');
     let buffer = '';
-    let lastPayload: SenseNovaStreamPayload | undefined;
+    let lastChunk: ReturnType<typeof normalizeUpstreamChunk> | undefined;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -180,66 +225,82 @@ export class AiService {
       }
 
       buffer += decoder.decode(value, { stream: true });
-      const segments = buffer.split('\n\n');
+      const segments = buffer.split(/\r?\n\r?\n/);
       buffer = segments.pop() ?? '';
 
       for (const segment of segments) {
-        const payload = this.extractSseData(segment);
-        if (!payload) {
+        const parsedSegment = parseSseSegment(segment);
+        if (!parsedSegment) {
           continue;
         }
 
-        if (payload === '[DONE]') {
+        const { event, data } = parsedSegment;
+
+        if (data === '[DONE]') {
           this.writeSse(response, 'done', {
-            id: lastPayload?.id ?? null,
-            model: lastPayload?.model ?? null,
-            usage: lastPayload?.usage ?? null,
+            id: lastChunk?.id ?? null,
+            model: lastChunk?.model ?? null,
+            usage: lastChunk?.usage ?? null,
           });
           response.end();
           return;
         }
 
-        const parsed = JSON.parse(payload) as SenseNovaStreamPayload;
-        if (parsed.error) {
-          throw new AppBusinessException(parsed.error.message ?? 'SenseNova 对话失败');
+        let payload: unknown;
+        try {
+          payload = JSON.parse(data);
+        } catch {
+          continue;
         }
 
-        const choice = parsed.choices?.[0];
-        lastPayload = parsed;
+        const streamError = extractStreamError(payload);
+        if (streamError) {
+          throw new AppBusinessException(streamError);
+        }
+
+        if (!shouldEmitUpstreamChunk(event, payload)) {
+          continue;
+        }
+
+        const normalized = normalizeUpstreamChunk(payload);
+        lastChunk = normalized;
+
+        if (!normalized.delta && !normalized.reasoning) {
+          continue;
+        }
 
         this.writeSse(response, 'chunk', {
-          id: parsed.id ?? null,
-          model: parsed.model ?? null,
-          delta: choice?.delta?.content ?? '',
-          reasoning: choice?.delta?.reasoning_content ?? '',
-          finishReason: choice?.finish_reason ?? '',
-          role: choice?.delta?.role ?? choice?.message?.role ?? 'assistant',
-          toolCalls: choice?.delta?.tool_calls ?? choice?.message?.tool_calls ?? null,
-          usage: parsed.usage ?? null,
+          id: normalized.id,
+          model: normalized.model,
+          delta: normalized.delta,
+          reasoning: normalized.reasoning,
+          finishReason: normalized.finishReason,
+          role: normalized.role,
+          usage: normalized.usage,
         });
       }
     }
 
     if (!response.writableEnded) {
       this.writeSse(response, 'done', {
-        id: lastPayload?.id ?? null,
-        model: lastPayload?.model ?? null,
-        usage: lastPayload?.usage ?? null,
+        id: lastChunk?.id ?? null,
+        model: lastChunk?.model ?? null,
+        usage: lastChunk?.usage ?? null,
       });
       response.end();
     }
   }
 
-  private toSenseNovaMessage(message: {
+  private toUpstreamChatMessage(message: {
     role: string;
     content?: string | WebAiChatContentBlockDto[];
     contentBlocks?: WebAiChatContentBlockDto[];
     toolCallId?: string;
   }): Record<string, unknown> {
     const content = Array.isArray(message.content)
-      ? message.content.map((block) => this.toSenseNovaContentBlock(block))
+      ? message.content.map((block) => this.toUpstreamContentBlock(block))
       : Array.isArray(message.contentBlocks)
-        ? message.contentBlocks.map((block) => this.toSenseNovaContentBlock(block))
+        ? message.contentBlocks.map((block) => this.toUpstreamContentBlock(block))
         : message.content;
 
     return {
@@ -249,7 +310,7 @@ export class AiService {
     };
   }
 
-  private toSenseNovaContentBlock(block: WebAiChatContentBlockDto): Record<string, unknown> {
+  private toUpstreamContentBlock(block: WebAiChatContentBlockDto): Record<string, unknown> {
     if (block.type === 'image_url') {
       return {
         type: 'image_url',
@@ -265,19 +326,6 @@ export class AiService {
     };
   }
 
-  private extractSseData(segment: string): string | null {
-    const lines = segment
-      .split('\n')
-      .map((line) => line.trim())
-      .filter((line) => line.startsWith('data:'));
-
-    if (lines.length === 0) {
-      return null;
-    }
-
-    return lines.map((line) => line.slice(5).trim()).join('\n');
-  }
-
   private writeSse(response: Response, event: string, data: unknown): void {
     if (response.writableEnded) {
       return;
@@ -285,5 +333,94 @@ export class AiService {
 
     response.write(`event: ${event}\n`);
     response.write(`data: ${JSON.stringify(data)}\n\n`);
+  }
+
+  private async resolveWebAiApiKeyConfig(
+    userId: string,
+    forceRefresh = false,
+  ): Promise<StoredWebAiApiKeyConfig | null> {
+    if (!forceRefresh) {
+      const cached = this.webAiApiKeyConfigCache.get(userId);
+
+      if (cached !== undefined) {
+        return cached;
+      }
+    }
+
+    const config = await this.loadWebAiApiKeyConfigFromRedis(userId);
+    this.webAiApiKeyConfigCache.set(userId, config);
+
+    return config;
+  }
+
+  private async loadWebAiApiKeyConfigFromRedis(
+    userId: string,
+  ): Promise<StoredWebAiApiKeyConfig | null> {
+    const rawConfig = await this.redisClient!.get(this.buildWebAiApiKeyConfigKey(userId));
+
+    if (!rawConfig) {
+      return null;
+    }
+
+    try {
+      const parsedConfig = JSON.parse(rawConfig) as Partial<StoredWebAiApiKeyConfig>;
+
+      if (
+        typeof parsedConfig.requestUrl !== 'string' ||
+        typeof parsedConfig.apiKeyToken !== 'string' ||
+        typeof parsedConfig.model !== 'string' ||
+        !parsedConfig.requestUrl.trim() ||
+        !parsedConfig.apiKeyToken.trim() ||
+        !parsedConfig.model.trim()
+      ) {
+        return null;
+      }
+
+      return {
+        requestUrl: parsedConfig.requestUrl.trim(),
+        apiKeyToken: parsedConfig.apiKeyToken.trim(),
+        model: parsedConfig.model.trim(),
+        updatedAt:
+          typeof parsedConfig.updatedAt === 'string'
+            ? parsedConfig.updatedAt
+            : new Date(0).toISOString(),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private toWebAiApiKeyConfigResponse(
+    config: StoredWebAiApiKeyConfig | null,
+  ): WebAiApiKeyConfigResponseDto {
+    return {
+      requestUrl: config?.requestUrl ?? '',
+      model: config?.model ?? '',
+      hasApiKeyToken: Boolean(config?.apiKeyToken),
+      apiKeyTokenMasked: config?.apiKeyToken ? this.maskApiKeyToken(config.apiKeyToken) : '',
+      updatedAt: config?.updatedAt ?? null,
+    };
+  }
+
+  private maskApiKeyToken(apiKeyToken: string): string {
+    if (apiKeyToken.length <= 8) {
+      return `${apiKeyToken.slice(0, 2)}****${apiKeyToken.slice(-2)}`;
+    }
+
+    return `${apiKeyToken.slice(0, 4)}****${apiKeyToken.slice(-4)}`;
+  }
+
+  private buildWebAiApiKeyConfigKey(userId: string): string {
+    return `web:ai:api-key-config:${userId}`;
+  }
+
+  private async ensureRedisReady(): Promise<void> {
+    if (!this.redisClient) {
+      throw new AppInternalErrorException('redis 未启用，无法保存 AI API Key 配置');
+    }
+
+    if (this.redisClient.status === 'wait') {
+      await this.redisClient.connect();
+    }
   }
 }
