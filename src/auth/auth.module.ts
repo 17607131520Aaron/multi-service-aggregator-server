@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
-import { JwtModule } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { AppAuthController } from '@/app/auth.controller';
@@ -9,7 +9,7 @@ import { UserEntity } from '@/auth/entities/user.entity';
 import { JwtAuthGuard } from '@/auth/jwt-auth.guard';
 import { getJwtConfig } from '@/config/jwt.config';
 import { RedisModule } from '@/system/redis.module';
-import { WebAuthController } from '@/web/auth.controller';
+// import { WebAuthController } from '@/web/auth.controller';
 import { WebUserController } from '@/web/user.controller';
 
 @Module({
@@ -30,7 +30,7 @@ import { WebUserController } from '@/web/user.controller';
       },
     }),
   ],
-  controllers: [AppAuthController, WebAuthController, WebUserController],
+  controllers: [AppAuthController, WebUserController],
   providers: [AuthService, JwtAuthGuard],
   exports: [AuthService, JwtAuthGuard],
 })

@@ -2,14 +2,7 @@ import { compare, hash } from 'bcryptjs';
 import type Redis from 'ioredis';
 import { IsNull, Repository } from 'typeorm';
 
-import {
-  AppLoginDto,
-  AppLoginType,
-  AppRegisterDto,
-  AppRegisterType,
-} from '@/app/dto/auth.dto';
-import { WebLoginDto, WebRegisterDto } from '@/web/dto/auth.dto';
-import { WebUserQueryDto } from '@/web/dto/user.dto';
+import { AppLoginDto, AppLoginType, AppRegisterDto, AppRegisterType } from '@/app/dto/auth.dto';
 import { UserEntity, UserRegistrationSource } from '@/auth/entities/user.entity';
 import {
   AppBusinessException,
@@ -21,6 +14,8 @@ import {
 } from '@/common/enterprise-exceptions';
 import { INJECTION_TOKENS } from '@/common/injection-tokens';
 import { getJwtConfig, JwtConfig } from '@/config/jwt.config';
+// import { WebLoginDto, WebRegisterDto } from '@/web/dto/auth.dto';
+import { WebLoginDto, WebRegisterDto, WebUserQueryDto } from '@/web/dto/user.dto';
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -176,7 +171,9 @@ export class AuthService {
     ].filter((item): item is NonNullable<typeof item> => item !== null);
 
     if (where.length === 0) {
-      throw new AppMissingParameterException('请至少提供 userId、username、email、phone 中的一个查询条件');
+      throw new AppMissingParameterException(
+        '请至少提供 userId、username、email、phone 中的一个查询条件',
+      );
     }
 
     const user = await this.userRepository.findOne({ where });
