@@ -1,5 +1,4 @@
-import { Type } from 'class-transformer';
-import { Exclude, Expose } from 'class-transformer';
+import { Exclude, Expose, Transform, Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   ArrayMaxSize,
@@ -43,11 +42,19 @@ export class WebAiChatContentBlockDto {
   public text?: string;
 
   @ApiPropertyOptional({
-    type: WebAiImageUrlDto,
-    description: '图片地址，仅 type=image_url 时需要',
+    oneOf: [{ type: 'string' }, { $ref: '#/components/schemas/WebAiImageUrlDto' }],
+    description:
+      '图片地址，仅 type=image_url 时需要；支持官方格式 { url } 或字符串简写（上传接口返回的 url）',
+    example: { url: 'http://localhost:3000/api/web/ai/files/6ba7b810-9dad-11d1-80b4-00c04fd430c8.png' },
   })
   @ValidateIf((block: WebAiChatContentBlockDto) => block.type === 'image_url')
-  @IsObject()
+  @Transform(({ value }) => {
+    if (typeof value === 'string') {
+      return { url: value };
+    }
+
+    return value;
+  })
   @ValidateNested()
   @Type(() => WebAiImageUrlDto)
   public image_url?: WebAiImageUrlDto;

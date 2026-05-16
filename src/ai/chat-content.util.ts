@@ -66,3 +66,43 @@ export function resolveUploadedImageMimeType(
 
   return null;
 }
+
+const STORED_AI_FILE_PATH_PATTERN = /\/web\/ai\/files\/([^/?#]+)$/i;
+
+export function normalizeImageUrlInput(imageUrl: unknown): { url: string } | null {
+  if (typeof imageUrl === 'string') {
+    const url = imageUrl.trim();
+
+    return url ? { url } : null;
+  }
+
+  if (typeof imageUrl === 'object' && imageUrl !== null && 'url' in imageUrl) {
+    const url = (imageUrl as { url?: unknown }).url;
+
+    if (typeof url === 'string') {
+      const trimmedUrl = url.trim();
+
+      return trimmedUrl ? { url: trimmedUrl } : null;
+    }
+  }
+
+  return null;
+}
+
+export function parseStoredAiFileNameFromUrl(url: string): string | null {
+  const match = url.match(STORED_AI_FILE_PATH_PATTERN);
+
+  return match?.[1] ?? null;
+}
+
+export function buildDataImageUrl(buffer: Buffer, mimeType: string): string {
+  return `data:${mimeType};base64,${buffer.toString('base64')}`;
+}
+
+export function isBlobImageUrl(url: string): boolean {
+  return url.trim().toLowerCase().startsWith('blob:');
+}
+
+export function isDataImageUrl(url: string): boolean {
+  return url.trim().toLowerCase().startsWith('data:');
+}

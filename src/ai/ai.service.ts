@@ -5,7 +5,14 @@ import type Redis from 'ioredis';
 
 import type { UploadedAiFile } from '@/ai/ai-upload.types';
 import { AiFileStorageService } from '@/ai/ai-file-storage.service';
-import { resolveUploadedImageMimeType } from '@/ai/chat-content.util';
+import {
+  buildDataImageUrl,
+  isBlobImageUrl,
+  isDataImageUrl,
+  normalizeImageUrlInput,
+  parseStoredAiFileNameFromUrl,
+  resolveUploadedImageMimeType,
+} from '@/ai/chat-content.util';
 import { LangChainContextService } from '@/ai/langchain-context.service';
 import {
   StoredWebAiApiKeyConfig,
@@ -209,7 +216,9 @@ export class AiService {
         },
         body: JSON.stringify({
           model: customConfig.model,
-          messages: preparedContext.messages.map((message) => this.toUpstreamChatMessage(message)),
+          messages: await Promise.all(
+            preparedContext.messages.map((message) => this.toUpstreamChatMessage(message)),
+          ),
           stream: true,
           max_tokens: dto.maxTokens ?? 4096,
           temperature: dto.temperature ?? 1,
@@ -343,16 +352,18 @@ export class AiService {
     }
   }
 
-  private toUpstreamChatMessage(message: {
+  private async toUpstreamChatMessage(message: {
     role: string;
     content?: string | WebAiChatContentBlockDto[];
     contentBlocks?: WebAiChatContentBlockDto[];
     toolCallId?: string;
-  }): Record<string, unknown> {
+  }): Promise<Record<string, unknown>> {
     const content = Array.isArray(message.content)
-      ? message.content.map((block) => this.toUpstreamContentBlock(block))
+      ? await Promise.all(message.content.map((block) => this.toUpstreamContentBlock(block)))
       : Array.isArray(message.contentBlocks)
-        ? message.contentBlocks.map((block) => this.toUpstreamContentBlock(block))
+        ? await Promise.all(
+            message.contentBlocks.map((block) => this.toUpstreamContentBlock(block)),
+          )
         : message.content;
 
     return {
@@ -362,12 +373,17 @@ export class AiService {
     };
   }
 
-  private toUpstreamContentBlock(block: WebAiChatContentBlockDto): Record<string, unknown> {
+  private async toUpstreamContentBlock(
+    block: WebAiChatContentBlockDto,
+  ): Promise<Record<string, unknown>> {
     if (block.type === 'image_url') {
+      const normalizedImageUrl = normalizeImageUrlInput(block.image_url);
+      const resolvedUrl = await this.resolveUpstreamImageUrl(normalizedImageUrl?.url ?? '');
+
       return {
         type: 'image_url',
         image_url: {
-          url: block.image_url?.url ?? '',
+          url: resolvedUrl,
         },
       };
     }
@@ -376,6 +392,38 @@ export class AiService {
       type: 'text',
       text: block.text ?? '',
     };
+  }
+
+  private async resolveUpstreamImageUrl(url: string): Promise<string> {
+    const trimmedUrl = url.trim();
+
+    if (!trimmedUrl) {
+      throw new AppBusinessException('图片地址不能为空，请使用 /api/web/ai/files 上传后传入 url');
+    }
+
+    if (isBlobImageUrl(trimmedUrl)) {
+      throw new AppBusinessException(
+        '浏览器 blob 图片无法被 AI 服务读取，请先调用 /api/web/ai/files 上传图片，再在消息中使用返回的 url',
+      );
+    }
+
+    if (isDataImageUrl(trimmedUrl)) {
+      return trimmedUrl;
+    }
+
+    const storedName = parseStoredAiFileNameFromUrl(trimmedUrl);
+
+    if (storedName) {
+      const { buffer, mimeType } = await this.readWebAiFile(storedName);
+
+      return buildDataImageUrl(buffer, mimeType);
+    }
+
+    if (trimmedUrl.startsWith('http://') || trimmedUrl.startsWith('https://')) {
+      return trimmedUrl;
+    }
+
+    throw new AppBusinessException('图片地址格式无效，请使用已上传图片 url 或公网可访问的 http(s) 地址');
   }
 
   private writeSse(response: Response, event: string, data: unknown): void {

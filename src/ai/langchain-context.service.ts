@@ -10,6 +10,7 @@ import {
   trimMessages,
 } from 'langchain';
 
+import { normalizeImageUrlInput } from '@/ai/chat-content.util';
 import { AuthenticatedUser } from '@/auth/auth.service';
 import {
   WebAiChatContentBlockDto,
@@ -200,19 +201,23 @@ export class LangChainContextService {
     content: string | WebAiChatContentBlockDto[] | undefined,
   ): string | LangChainContentBlock[] {
     if (Array.isArray(content)) {
-      return content.map((block) =>
-        block.type === 'image_url'
-          ? {
-              type: 'image_url',
-              image_url: {
-                url: block.image_url?.url ?? '',
-              },
-            }
-          : {
-              type: 'text',
-              text: block.text ?? '',
+      return content.map((block) => {
+        if (block.type === 'image_url') {
+          const normalizedImageUrl = normalizeImageUrlInput(block.image_url);
+
+          return {
+            type: 'image_url',
+            image_url: {
+              url: normalizedImageUrl?.url ?? '',
             },
-      );
+          };
+        }
+
+        return {
+          type: 'text',
+          text: block.text ?? '',
+        };
+      });
     }
 
     return content ?? '';
@@ -224,10 +229,12 @@ export class LangChainContextService {
         const typedBlock = block as { type?: string; text?: string; image_url?: { url?: string } };
 
         if (typedBlock.type === 'image_url') {
+          const normalizedImageUrl = normalizeImageUrlInput(typedBlock.image_url);
+
           return {
             type: 'image_url',
             image_url: {
-              url: typedBlock.image_url?.url ?? '',
+              url: normalizedImageUrl?.url ?? '',
             },
           };
         }
