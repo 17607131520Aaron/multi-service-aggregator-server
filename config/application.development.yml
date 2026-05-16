@@ -36,3 +36,12 @@ ops: token:""
 
 ai:
   streamTimeoutMs: 60000
+  upload:
+    storageDir: uploads/ai
+    publicPathPrefix: /api
+    maxFileSizeBytes: 10485760
+    allowedMimeTypes:
+      - image/png
+      - image/jpeg
+      - image/webp
+      - image/gif

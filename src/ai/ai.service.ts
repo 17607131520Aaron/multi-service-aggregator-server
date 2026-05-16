@@ -3,6 +3,9 @@ import { ConfigService } from '@nestjs/config';
 import { Response } from 'express';
 import type Redis from 'ioredis';
 
+import type { UploadedAiFile } from '@/ai/ai-upload.types';
+import { AiFileStorageService } from '@/ai/ai-file-storage.service';
+import { resolveUploadedImageMimeType } from '@/ai/chat-content.util';
 import { LangChainContextService } from '@/ai/langchain-context.service';
 import {
   StoredWebAiApiKeyConfig,
@@ -15,14 +18,19 @@ import {
   shouldEmitUpstreamChunk,
 } from '@/ai/upstream-stream.parser';
 import { AuthenticatedUser } from '@/auth/auth.service';
-import { AppBusinessException, AppInternalErrorException } from '@/common/enterprise-exceptions';
+import {
+  AppBusinessException,
+  AppInternalErrorException,
+  AppNotFoundException,
+} from '@/common/enterprise-exceptions';
 import { INJECTION_TOKENS } from '@/common/injection-tokens';
-import { getAiStreamConfig } from '@/config/ai.config';
+import { getAiStreamConfig, getAiUploadConfig } from '@/config/ai.config';
 import {
   WebAiApiKeyConfigRequestDto,
   WebAiApiKeyConfigResponseDto,
   WebAiChatContentBlockDto,
   WebAiChatStreamRequestDto,
+  WebAiFileUploadResponseDto,
 } from '@/web/dto/ai.dto';
 
 @Injectable()
@@ -31,6 +39,7 @@ export class AiService {
 
   constructor(
     private readonly configService: ConfigService,
+    private readonly aiFileStorageService: AiFileStorageService,
     private readonly langChainContextService: LangChainContextService,
     private readonly webAiApiKeyConfigCache: WebAiApiKeyConfigCache,
     @Optional()
@@ -88,6 +97,49 @@ export class AiService {
     this.webAiApiKeyConfigCache.set(user.userId, null);
 
     return this.toWebAiApiKeyConfigResponse(null);
+  }
+
+  public async uploadWebAiFile(
+    file: UploadedAiFile | undefined,
+    origin: string,
+  ): Promise<WebAiFileUploadResponseDto> {
+    if (!file) {
+      throw new AppBusinessException('请上传文件');
+    }
+
+    const uploadConfig = getAiUploadConfig(this.configService);
+
+    if (file.size > uploadConfig.maxFileSizeBytes) {
+      throw new AppBusinessException(
+        `文件大小不能超过 ${Math.floor(uploadConfig.maxFileSizeBytes / (1024 * 1024))}MB`,
+      );
+    }
+
+    const mimeType = resolveUploadedImageMimeType(file.buffer, file.mimetype);
+
+    if (!mimeType || !uploadConfig.allowedMimeTypes.includes(mimeType)) {
+      throw new AppBusinessException('仅支持上传 PNG、JPEG、WebP 或 GIF 图片');
+    }
+
+    const storedName = await this.aiFileStorageService.saveImage(file.buffer, mimeType);
+    const pathPrefix = this.aiFileStorageService.resolvePublicPathPrefix();
+
+    return {
+      url: this.aiFileStorageService.buildPublicFileUrl(origin, pathPrefix, storedName),
+      filename: file.originalname || storedName,
+      mimeType,
+      size: file.size,
+    };
+  }
+
+  public async readWebAiFile(
+    storedName: string,
+  ): Promise<{ buffer: Buffer; mimeType: string }> {
+    try {
+      return await this.aiFileStorageService.readImage(storedName);
+    } catch {
+      throw new AppNotFoundException('文件不存在');
+    }
   }
 
   public async streamWebChat(

@@ -153,6 +153,28 @@ export class WebAiApiKeyConfigRequestDto {
 }
 
 @Exclude()
+export class WebAiFileUploadResponseDto {
+  @ApiProperty({
+    description: '可用于 image_url 的图片访问地址',
+    example: 'http://localhost:3000/api/web/ai/files/6ba7b810-9dad-11d1-80b4-00c04fd430c8.png',
+  })
+  @Expose()
+  public url: string;
+
+  @ApiProperty({ description: '原始文件名', example: 'paste-1778917753823-0.png' })
+  @Expose()
+  public filename: string;
+
+  @ApiProperty({ description: '识别后的 MIME 类型', example: 'image/png' })
+  @Expose()
+  public mimeType: string;
+
+  @ApiProperty({ description: '文件大小（字节）', example: 1024 })
+  @Expose()
+  public size: number;
+}
+
+@Exclude()
 export class WebAiApiKeyConfigResponseDto {
   @ApiProperty({
     description: '自定义 AI 请求 URL，未配置时为空字符串',

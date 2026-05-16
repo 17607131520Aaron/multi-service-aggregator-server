@@ -1,5 +1,7 @@
+import type { UploadedAiFile } from '@/ai/ai-upload.types';
 import { AiService } from '@/ai/ai.service';
 import { AuthenticatedUser } from '@/auth/auth.service';
+import { Public } from '@/auth/public.decorator';
 import type { RequestWithContext } from '@/common/request-context.middleware';
 import { RateLimit } from '@/decorators/rate-limit.decorator';
 import { useDto } from '@/decorators/use-dto.decorator';
@@ -7,11 +9,26 @@ import {
   WebAiApiKeyConfigRequestDto,
   WebAiApiKeyConfigResponseDto,
   WebAiChatStreamRequestDto,
+  WebAiFileUploadResponseDto,
 } from '@/web/dto/ai.dto';
-import { Body, Controller, Delete, Get, Post, Put, Req, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Put,
+  Req,
+  Res,
+  UploadedFile,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiBearerAuth,
   ApiBody,
+  ApiConsumes,
   ApiOkResponse,
   ApiOperation,
   ApiProduces,
@@ -60,6 +77,66 @@ export class WebAiController {
     @Req() request: ProtectedAuthenticatedRequest,
   ): Promise<WebAiApiKeyConfigResponseDto> {
     return this.aiService.deleteWebAiApiKeyConfig(request.user);
+  }
+
+  @Post('files')
+  @ApiOperation({ summary: '上传 AI 对话图片（multipart/form-data，字段名 file）' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['file'],
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+          description: '图片文件，支持 PNG / JPEG / WebP / GIF',
+        },
+      },
+    },
+  })
+  @ApiOkResponse({ type: WebAiFileUploadResponseDto, description: '上传成功' })
+  @RateLimit({ limit: 30, windowMs: 60_000 })
+  @useDto(WebAiFileUploadResponseDto)
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: {
+        files: 1,
+        fileSize: 10 * 1024 * 1024,
+      },
+    }),
+  )
+  public async uploadFile(
+    @UploadedFile() file: UploadedAiFile | undefined,
+    @Req() request: ProtectedAuthenticatedRequest,
+  ): Promise<WebAiFileUploadResponseDto> {
+    const origin = this.resolveRequestOrigin(request);
+
+    return this.aiService.uploadWebAiFile(file, origin);
+  }
+
+  @Public()
+  @Get('files/:storedName')
+  @ApiOperation({ summary: '访问已上传的 AI 图片' })
+  public async getFile(
+    @Param('storedName') storedName: string,
+    @Res() response: Response,
+  ): Promise<void> {
+    const { buffer, mimeType } = await this.aiService.readWebAiFile(storedName);
+
+    response.setHeader('Content-Type', mimeType);
+    response.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    response.send(buffer);
+  }
+
+  private resolveRequestOrigin(request: ProtectedAuthenticatedRequest): string {
+    const forwardedProto = request.headers['x-forwarded-proto'];
+    const protocol = Array.isArray(forwardedProto)
+      ? forwardedProto[0]
+      : (forwardedProto?.split(',')[0] ?? request.protocol);
+    const host = request.get('host');
+
+    return `${protocol}://${host}`;
   }
 
   @Post('chat/stream')

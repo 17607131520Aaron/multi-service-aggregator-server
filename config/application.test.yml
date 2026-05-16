@@ -44,3 +44,11 @@ ops:
 
 ai:
   streamTimeoutMs: 120000
+  upload:
+    storageDir: uploads/ai
+    maxFileSizeBytes: 10485760
+    allowedMimeTypes:
+      - image/png
+      - image/jpeg
+      - image/webp
+      - image/gif
